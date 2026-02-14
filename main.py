@@ -13,82 +13,158 @@ volRange = volume.GetVolumeRange()
 minVol = volRange[0]
 maxVol = volRange[1]
 
-MODEL_PATH = 'hand_landmarker.task'
+HAND_MODEL_PATH = "hand_landmarker.task"
+FACE_MODEL_PATH = "blaze_face_short_range.tflite"
+
 SMOOTH_VALUES = 8
 vol_history = deque(maxlen=SMOOTH_VALUES)
 
 BaseOptions = mp.tasks.BaseOptions
-HandLandmark = vision.HandLandmarker
-HandLandmarkOptions = vision.HandLandmarkerOptions
 VisionRunningMode = vision.RunningMode
 
-options = HandLandmarkOptions(
-    base_options=BaseOptions(model_asset_path=MODEL_PATH),
+Face_detector = vision.FaceDetector
+Face_detector_options = vision.FaceDetectorOptions
+
+HandLandmark = vision.HandLandmarker
+HandLandmarkOptions = vision.HandLandmarkerOptions
+
+
+face_options = Face_detector_options(
+    base_options=BaseOptions(model_asset_path=FACE_MODEL_PATH),
+    running_mode=VisionRunningMode.VIDEO,
+    min_detection_confidence=0.5,
+)
+
+hand_options = HandLandmarkOptions(
+    base_options=BaseOptions(model_asset_path=HAND_MODEL_PATH),
     running_mode=VisionRunningMode.VIDEO,
     num_hands=1,
     min_hand_detection_confidence=0.5,
     min_hand_presence_confidence=0.5,
-    min_tracking_confidence=0.5
+    min_tracking_confidence=0.5,
 )
 
-with HandLandmark.create_from_options(options) as landmarker:
+
+with Face_detector.create_from_options(
+    face_options
+) as detector, HandLandmark.create_from_options(hand_options) as landmarker:
     cap = cv2.VideoCapture(0)
 
     pTime = 0
     while True:
         success, frame = cap.read()
-        if not success: break
+        if not success:
+            break
+        
+        h, w, _ = frame.shape
 
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
 
-        frame_timestamp_ms = int(time.time() * 1000)
-        detection_result = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
+        frame_timestamp_ms = int(time.perf_counter() * 1000)
 
-        if detection_result.hand_landmarks:
-            for hand_landmarks in detection_result.hand_landmarks:
-                # We need the coordinates of the thumb tip (4) and index finger tip (8) to calculate the distance between them.
-                # In new version of mediapipe, the hand landmarks are normalized to [0.0, 1.0] range.
-                h, w, _ = frame.shape
+        # Face Detection
+        face_result = detector.detect_for_video(mp_image, frame_timestamp_ms)
+        user_present = False
 
-                # Point 4 (Thumb tip)
-                x1 = int(hand_landmarks[4].x * w)
-                y1 = int(hand_landmarks[4].y * h)
+        if face_result.detections:
+            user_present = True
+            for detection in face_result.detections:
+                bbox = detection.bounding_box
+                start_point = (bbox.origin_x, bbox.origin_y)
+                end_point = (bbox.origin_x + bbox.width, bbox.origin_y + bbox.height)
 
-                # Point 8 (Index finger tip)
-                x2 = int(hand_landmarks[8].x * w)
-                y2 = int(hand_landmarks[8].y * h)
+                cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    "User Detected",
+                    (bbox.origin_x, bbox.origin_y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                )
 
-                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2 # Calculate the center point between the thumb and index finger
-                cv2.circle(frame, (x1, y1), 10, (255, 0, 255), cv2.FILLED)
-                cv2.circle(frame, (x2, y2), 10, (255, 0, 255), cv2.FILLED)
-                cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 255), 3)
+        if not user_present:
+            # Mute
+            cv2.putText(
+                frame,
+                "AUTO-MUTE: User Absent",
+                (w // 2 - 150, h // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 0, 255),
+                3,
+            )
+            volume.SetMasterVolumeLevel(minVol, None)
 
-                length = math.hypot(x2 - x1, y2 - y1) # Euclidean distance between the thumb and index finger
+        else:
+            hand_result = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
 
-                current_vol = np.interp(length, [20, 200], [minVol, maxVol])
-                vol_history.append(current_vol)
-                smoothed_vol = sum(vol_history) / len(vol_history)
+            if hand_result.hand_landmarks:
+                for hand_landmarks in hand_result.hand_landmarks:
+                    # We need the coordinates of the thumb tip (4) and index finger tip (8) to calculate the distance between them.
+                    # In new version of mediapipe, the hand landmarks are normalized to [0.0, 1.0] range.
 
-                volBar = np.interp(length, [30, 200], [400, 150])
-                volPer = np.interp(length, [30, 200], [0, 100])
+                    # Point 4 (Thumb tip)
+                    x1 = int(hand_landmarks[4].x * w)
+                    y1 = int(hand_landmarks[4].y * h)
 
-                volume.SetMasterVolumeLevel(smoothed_vol, None)
-                if length < 30:
-                    cv2.circle(frame, (cx, cy), 10, (0, 255, 0), cv2.FILLED)
+                    # Point 8 (Index finger tip)
+                    x2 = int(hand_landmarks[8].x * w)
+                    y2 = int(hand_landmarks[8].y * h)
 
-                cv2.rectangle(frame, (50, 150), (85, 400), (0, 255, 0), 3)
-                cv2.rectangle(frame, (50, int(volBar)), (85, 400), (0, 255, 0), cv2.FILLED)
-                cv2.putText(frame, f'{int(volPer)} %', (40, 450), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 3)
+                    cx, cy = (x1 + x2) // 2, (
+                        y1 + y2
+                    ) // 2  # Calculate the center point between the thumb and index finger
+                    cv2.circle(frame, (x1, y1), 10, (255, 0, 255), cv2.FILLED)
+                    cv2.circle(frame, (x2, y2), 10, (255, 0, 255), cv2.FILLED)
+                    cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 255), 3)
+
+                    length = math.hypot(
+                        x2 - x1, y2 - y1
+                    )  # Euclidean distance between the thumb and index finger
+
+                    current_vol = np.interp(length, [20, 200], [minVol, maxVol])
+                    vol_history.append(current_vol)
+                    smoothed_vol = sum(vol_history) / len(vol_history)
+
+                    volBar = np.interp(length, [30, 200], [400, 150])
+                    volPer = np.interp(length, [30, 200], [0, 100])
+
+                    volume.SetMasterVolumeLevel(smoothed_vol, None)
+                    if length < 30:
+                        cv2.circle(frame, (cx, cy), 10, (0, 255, 0), cv2.FILLED)
+
+                    cv2.rectangle(frame, (50, 150), (85, 400), (0, 255, 0), 3)
+                    cv2.rectangle(
+                        frame, (50, int(volBar)), (85, 400), (0, 255, 0), cv2.FILLED
+                    )
+                    cv2.putText(
+                        frame,
+                        f"{int(volPer)} %",
+                        (40, 450),
+                        cv2.FONT_HERSHEY_COMPLEX,
+                        1,
+                        (0, 255, 0),
+                        3,
+                    )
 
         cTime = time.time()
         fps = 1 / (cTime - pTime) if (cTime - pTime) > 0 else 0
         pTime = cTime
-        cv2.putText(frame, f'FPS: {int(fps)}', (20, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 0, 0), 3)
+        cv2.putText(
+            frame,
+            f"FPS: {int(fps)}",
+            (20, 50),
+            cv2.FONT_HERSHEY_COMPLEX,
+            1,
+            (255, 0, 0),
+            3,
+        )
 
         cv2.imshow("Volume Control (New API)", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if cv2.waitKey(1) & 0xFF == ord("q"):
             break
     cap.release()
     cv2.destroyAllWindows()
-
