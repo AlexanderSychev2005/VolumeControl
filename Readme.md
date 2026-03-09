@@ -28,17 +28,22 @@ The core functionality relies on calculating the Euclidean distance between the 
 
 ### 1. Euclidean Distance
 The distance $d$ between the thumb $(x_1, y_1)$ and index finger $(x_2, y_2)$ is calculated as:
-$$d = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}$$
+```math
+d = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2}
+```
 
 ### 2. Linear Interpolation
 To map the pixel distance $d$ to the system's decibel range $[v_{min}, v_{max}]$, we use linear interpolation. Given a measured distance $d \in [d_{min}, d_{max}]$, the mapped volume $v$ is:
-
-$$v = v_{min} + \frac{(d - d_{min}) \cdot (v_{max} - v_{min})}{d_{max} - d_{min}}$$
+```math
+v = v_{min} + \frac{(d - d_{min}) \cdot (v_{max} - v_{min})}{d_{max} - d_{min}}
+```
 
 
 ### 3. Signal Smoothing
 To prevent "jitter" caused by noisy sensor data, we use a moving average filter:
-$$\bar{v}_t = \frac{1}{N} \sum_{i=0}^{N-1} v_{t-i}$$
+```math
+\bar{v}_t = \frac{1}{N} \sum_{i=0}^{N-1} v_{t-i}
+```
 Where $N$ is the smoothing window size (set to 8 in this implementation).
 
 ## Installation
