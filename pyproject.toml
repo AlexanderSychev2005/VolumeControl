@@ -1,0 +1,16 @@
+[project]
+name = "volumecontrol"
+version = "0.1.0"
+description = "AI Hand Gesture Volume Control"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Alex", email = "alexandersychev2005@gmail.com" },
+]
+
+dependencies = [
+    "opencv-python",
+    "mediapipe",
+    "pycaw",
+    "numpy",
+]
