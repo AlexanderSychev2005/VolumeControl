@@ -47,10 +47,10 @@ To prevent "jitter" caused by noisy sensor data, we use a moving average filter:
 Where $N$ is the smoothing window size (set to 8 in this implementation).
 
 ## Installation
-1. Ensure you have Python 3.x installed.
+1. Ensure you have Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/) installed.
 2. Install the required dependencies:
 ```bash
-pip install opencv-python mediapipe pycaw numpy
+uv sync
 ```
 
 ## How it works
